@@ -1,0 +1,324 @@
+---
+title: "DDS Final"
+author: "O'Neal Gray"
+date: "2023-04-14"
+output:
+  html_document:
+    keep_md: true
+    self_contained: false
+    output_file: DDSFinal.html
+layout: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(caret)
+library(e1071)
+library(olsrr)
+library(dplyr)
+library(klaR)
+library(tidyverse)
+library(glmnet)
+library(readxl)
+library(olsrr)
+library(pROC)
+
+data2 = read.csv("CaseStudy2-data.csv")
+data = read.csv("CaseStudy2-data.csv")
+train_data = data2
+test_data = read.csv("CaseStudy2CompSet No Salary.xlsx")
+
+data2$Age = NULL
+set.seed(123)
+```
+
+Introduction
+
+In this data analysis project for DDSAnalytics, my primary goal is to identify the top three factors that contribute to employee turnover. Additionally, I will explore job role specific trends, interesting observations, and build a model to predict attrition and monthly income.
+
+The first step in this process is data loading and preprocessing, which involves reading in the provided dataset, splitting it into train and test sets, and converting columns with low unique value counts to factors. I also created several plots to explore the data, such as Age vs Monthly Income by Gender, Job Role Vs. Monthly Income by Department, Distance from Home by Job Role, Years at Company vs. Years in Current Role by Attrition, and Attrition and Monthly Income.
+
+Next, I built a Naive Bayes model to predict attrition and improved its accuracy by adjusting the Laplace value. I also trained three linear regression models using forward, backward, and stepwise selection techniques to predict monthly income and evaluated their performance using cross-validation.
+
+Overall, our data analysis project will provide valuable insights into talent management solutions for DDSAnalytics and help the company gain a competitive edge over its competition.
+
+Data Loading and Preprocessing
+
+```{r preprocessing, include =FALSE}
+# Function to convert columns with low unique value counts to factors
+convert_to_factors = function(df, threshold) {
+  for (col_name in colnames(df)) {
+    if (length(unique(df[[col_name]])) <= threshold) {
+      df[[col_name]] = as.factor(df[[col_name]])
+    }
+  }
+  return(df)
+}
+
+# Read in the data
+data2 = read.csv("CaseStudy2-data.csv")
+data = data2
+
+# Remove the Age column
+data2$Age = NULL
+
+# Split the data into train and test sets
+set.seed(123)
+data_split = createDataPartition(data2$Attrition, p = 0.7, list = FALSE)
+train_set = data2[data_split, ]
+test_set = data2[-data_split, ]
+
+# Convert columns with low unique value counts to factors in the train and test sets
+threshold = 10
+train_set = convert_to_factors(train_set, threshold)
+test_set = convert_to_factors(test_set, threshold)
+
+```
+
+Plots
+
+Age vs Monthly Income by Gender
+
+```{r AgeVsMonthlyIncomeByGender, echo=FALSE, fig.cap="Age vs Monthly Income by Gender", message=FALSE}
+ggplot(data, aes(x = Age, y = MonthlyIncome, color = factor(Gender))) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "", x = "Age", y = "Monthly Income") +
+  scale_color_manual(values=c("blue", "pink"), labels=c("Male", "Female")) +
+  geom_smooth(method = "lm", se = FALSE, data = subset(data, Gender == 1)) +
+  geom_smooth(method = "lm", se = FALSE, data = subset(data, Gender == 2))
+
+```
+
+Job Role Vs. Monthly Income by Department
+
+```{r job_role_vs_MIBYDEP, echo=FALSE}
+ggplot(data2, aes(x = JobRole, y = MonthlyIncome, fill = Department)) +
+  geom_boxplot() +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Job Role vs. Monthly Income by Department", x = "Job Role", y = "Monthly Income")
+```
+
+Distance from Home by Job Role
+
+```{r distance, echo=FALSE}
+ggplot(data2, aes(x = DistanceFromHome, fill = Attrition)) +
+  geom_histogram(position = "identity", alpha = 0.5, bins = 30) +
+  facet_wrap(~ JobRole, scales = "free_y") +
+  theme_minimal() +
+  labs(title = "", x = "Distance from Home", y = "Frequency")
+```
+
+Years at Company vs. Years in Current Role by Attrition
+
+```{r years_at_company, echo=FALSE}
+ggplot(data2, aes(x = YearsAtCompany, y = YearsInCurrentRole, color = Attrition)) +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Years at Company vs. Years in Current Role by Attrition", x = "Years at Company", y = "Years in Current Role")
+```
+
+Attrition and Monthly Income
+
+```{r attrition_monthly_income, echo=FALSE}
+ggplot(data2, aes(x = Attrition, y = MonthlyIncome, fill = Attrition)) +
+  geom_boxplot(color = "black", alpha = 0.7) +
+  scale_fill_manual(values = c("#0072B2", "#E69F00")) + # use colorbrewer2.org scheme
+  theme_minimal() +
+  labs(title = "Attrition and Monthly Income", subtitle = "Distribution of Monthly Income by Attrition Status", x = "Attrition Status", y = "Monthly Income (USD)", fill = "Attrition Status") +
+  theme(plot.title = element_text(size = 20, face = "bold"),
+        plot.subtitle = element_text(size = 14),
+        axis.title.x = element_text(size = 16),
+        axis.title.y = element_text(size = 16),
+        axis.text = element_text(size = 14))
+```
+
+Monthly Income by Attrition and Gender
+
+```{r monthly_income_att_gender, echo=TRUE}
+ggplot(data2, aes(x = Attrition, y = MonthlyIncome, fill = factor(Gender))) +
+  geom_boxplot(color = "black", alpha = 0.7) +
+  scale_fill_manual(values = c("blue", "pink"), labels = c("Male", "Female")) +
+  theme_minimal() +
+  labs(title = "Monthly Income by Attrition and Gender", subtitle = "Distribution of Monthly Income by Attrition Status and Gender", x = "Attrition Status", y = "Monthly Income (USD)", fill = "Gender") +
+  theme(plot.title = element_text(size = 20, face = "bold"),
+        plot.subtitle = element_text(size = 14),
+        axis.title.x = element_text(size = 16),
+        axis.title.y = element_text(size = 16),
+        axis.text = element_text(size = 14))
+```
+
+Naive Bayes Model
+
+```{r naive bayes, echo=FALSE}
+# Train the Naive Bayes model
+nb_model = naiveBayes(Attrition ~ ., data = train_set)
+
+# Make predictions
+predicted_labels = predict(nb_model, test_set[, -2])
+
+# Calculate accuracy
+actual_labels = test_set$Attrition
+accuracy = sum(predicted_labels == actual_labels) / length(actual_labels)
+cat("Accuracy (Naive Bayes):", accuracy, "\n")
+
+# Create a confusion matrix
+conf_matrix_nb = table(Predicted = predicted_labels, Actual = actual_labels)
+print(conf_matrix_nb)
+
+# Calculate sensitivity (true positive rate)
+sensitivity_nb = conf_matrix_nb[2, 2] / (conf_matrix_nb[2, 2] + conf_matrix_nb[1, 2])
+cat("Sensitivity (Naive Bayes):", sensitivity_nb, "\n")
+
+# Calculate specificity (true negative rate)
+specificity_nb = conf_matrix_nb[1, 1] / (conf_matrix_nb[1, 1] + conf_matrix_nb[2, 1])
+cat("Specificity (Naive Bayes):", specificity_nb, "\n")
+
+```
+
+Naive Bayes Model with Laplace Adjustment
+
+```{r laplace_adjustment, echo=TRUE}
+# Build a new Naïve Bayes model with adjusted Laplace value
+nb_model_laplace <- naiveBayes(Attrition ~ ., data = train_set, laplace = 2)
+
+# Make predictions with the new model
+predicted_labels_laplace <- predict(nb_model_laplace, test_set[, -2])
+
+# Calculate new accuracy
+accuracy_laplace <- sum(predicted_labels_laplace == actual_labels) / length(actual_labels)
+cat
+
+```
+
+ROC Curve for Naive Bayes Model
+
+```{r roc_curve, echo=FALSE}
+# Use the Laplace-adjusted Naive Bayes model to predict probabilities on the test set
+predicted_probs = predict(nb_model_laplace, test_set[, -2], type = "raw")[, 2]
+
+# Compute the ROC curve based on the predicted probabilities and actual "Attrition" class labels
+roc_obj = roc(actual_labels, predicted_probs)
+
+# Plot the ROC curve
+plot(roc_obj, main = "ROC Curve for Naive Bayes Model (with Laplace adjustment)",
+     xlab = "False Positive Rate (1 - Specificity)",
+     ylab = "True Positive Rate (Sensitivity)",
+     print.auc = TRUE)
+```
+
+Linear Regression Models to predict Monthly Income
+
+```{r linear_regression, include = FALSE}
+# Read the train and test data
+train_data = read_csv("CaseStudy2-data.csv")
+test_data = read_excel("CaseStudy2CompSet No Salary.xlsx")
+# Define a function to preprocess the data
+preprocess_data <- function(data, target_variable = TRUE) {
+  data <- data %>%
+    dplyr::select(-EmployeeCount, -EmployeeNumber, -Over18) %>%
+    mutate(across(where(is.character), as.factor))
+  
+  if (target_variable) {
+    data_dummy <- dummyVars(MonthlyIncome ~ ., data = data)
+    data_clean <- data.frame(predict(data_dummy, newdata = data))
+    data_clean$MonthlyIncome <- data$MonthlyIncome
+  } else {
+    data_dummy <- dummyVars(~., data = data)
+    data_clean <- data.frame(predict(data_dummy, newdata = data))
+  }
+  
+  return(data_clean)
+}
+
+# Preprocess the train and test data
+train_clean <- preprocess_data(train_data)
+test_clean <- preprocess_data(test_data, target_variable = FALSE)
+# Train the initial model
+model <- lm(MonthlyIncome ~ ., data = train_clean)
+summary(model)
+# Perform forward selection
+forward_selected <- ols_step_forward_p(model, penter = 0.05, details = TRUE)
+
+# Train the forward model
+forward_formula <- as.formula(forward_selected$model)
+forward_model <- lm(forward_formula, data = train_clean)
+summary(forward_model)
+
+# Predict the test data using the forward model
+test_predictions <- predict(forward_model, newdata = test_clean)
+
+# Save the predictions to a CSV file
+predicted_df <- data.frame(ID = test_data$ID, PredictedMonthlyIncome = test_predictions)
+write.csv(predicted_df, "forward_predictions.csv", row.names = FALSE)
+# Perform backward selection
+backward_results <- ols_step_backward_p(model, premove = 0.05, details = TRUE)
+
+# Train the backward model
+backward_formula <- as.formula(backward_results$model)
+backward_model <- lm(backward_formula, data = train_clean)
+
+# Predict the test data using the backward model
+test_predictions_backward <- predict(backward_model, newdata = test_clean)
+
+# Save the predictions to a CSV file
+predicted_df_backward <- data.frame(ID = test_data$ID, PredictedMonthlyIncome = test_predictions_backward)
+write.csv(predicted_df_backward, "backward_predictions.csv", row.names = FALSE)
+# Perform stepwise selection
+stepwise_results <- ols_step_both_p(model, pent = 0.05, prem = 0.05, details = TRUE)
+
+# Train the stepwise model
+stepwise_formula <- as.formula(stepwise_results$model)
+stepwise_model <- lm(stepwise_formula, data = train_clean)
+
+# Predict the test data using the stepwise model
+test_predictions_stepwise <- predict(stepwise_model, newdata = test_clean)
+
+# Save the predictions to a CSV file
+predicted_df_stepwise <- data.frame(ID = test_data$ID, PredictedMonthlyIncome = test_predictions_stepwise)
+write.csv(predicted_df_stepwise, "stepwise_predictions.csv", row.names = FALSE)
+
+```
+
+Stepwise Model Residuals Vs. Fitted Values
+
+```{r ggplot_stepwise, echo=FALSE}
+# Create the diagnostic plot
+fitted_values <- stepwise_model$fitted.values
+residuals <- stepwise_model$residuals
+data_plot <- data.frame(FittedValues = fitted_values, Residuals = residuals)
+
+ggplot(data_plot, aes(x = FittedValues, y = Residuals)) +
+  geom_point() +
+  geom_smooth(method = "loess", color = "red", se = FALSE) +
+  theme_minimal() +
+  labs(
+    title = "Stepwise Model Residuals vs Fitted Values",
+    x = "Fitted Values",
+    y = "Residuals"
+  )
+
+```
+
+Model performance (Forward, Backward & Stepwise)
+
+```{r model_perforance, echo=FALSE, warning=FALSE}
+# Set up cross-validation
+k_folds <- 10
+cv_control <- trainControl(method = "cv", number = k_folds, savePredictions = "final")
+metric <- "RMSE"
+
+# Cross-validation for forward, backward, and stepwise models
+forward_cv <- train(forward_formula, data = train_clean, method = "lm", trControl = cv_control, metric = metric)
+backward_cv <- train(backward_formula, data = train_clean, method = "lm", trControl = cv_control, metric = metric)
+stepwise_cv <- train(stepwise_formula, data = train_clean, method = "lm", trControl = cv_control, metric = metric)
+
+# Compare the results
+cv_results <- data.frame(Model = c("Forward", "Backward", "Stepwise"),
+                         RMSE = c(forward_cv$results$RMSE, backward_cv$results$RMSE, stepwise_cv$results$RMSE),
+                         Rsquared = c(forward_cv$results$Rsquared, backward_cv$results$Rsquared, stepwise_cv$results$Rsquared))
+
+cv_results
+
+```
